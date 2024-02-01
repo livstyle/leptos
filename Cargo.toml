@@ -20,7 +20,7 @@ members = [
 
   # libraries
   "meta",
-  "router",
+  "router", "reactive-graph",
 ]
 exclude = ["benchmarks", "examples"]
 
