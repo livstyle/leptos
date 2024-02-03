@@ -114,7 +114,7 @@ impl Executor {
     #[cfg_attr(docsrs, doc(cfg(feature = "futures-executor")))]
     pub fn init_futures_executor() -> Result<(), ExecutorError> {
         use futures::{
-            executor::{LocalPool, LocalSpawner, ThreadPool},
+            executor::{LocalPool, ThreadPool},
             task::{LocalSpawnExt, SpawnExt},
         };
 
