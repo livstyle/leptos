@@ -9,8 +9,10 @@ use std::{
 };
 
 mod arena;
+mod context;
 use arena::NodeId;
 pub use arena::{Stored, StoredData};
+pub use context::*;
 
 #[derive(Debug, Clone, Default)]
 pub struct Owner {

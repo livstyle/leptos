@@ -96,13 +96,14 @@ impl<T: Source + ToAnySource> Track for T {
 }
 
 pub trait Readable: Sized + DefinedAt {
+    type Root;
     type Value;
 
     #[track_caller]
-    fn try_read(&self) -> Option<SignalReadGuard<Self::Value>>;
+    fn try_read(&self) -> Option<SignalReadGuard<Self::Root, Self::Value>>;
 
     #[track_caller]
-    fn read(&self) -> SignalReadGuard<Self::Value> {
+    fn read(&self) -> SignalReadGuard<Self::Root, Self::Value> {
         self.try_read().unwrap_or_else(unwrap_signal!(self))
     }
 }

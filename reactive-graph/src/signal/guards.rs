@@ -5,19 +5,40 @@ use std::{
 };
 
 #[derive(Debug)]
-pub struct SignalReadGuard<'a, T>(RwLockReadGuard<'a, T>);
+pub struct SignalReadGuard<'a, T, U> {
+    guard: RwLockReadGuard<'a, T>,
+    map_fn: fn(&T) -> &U,
+}
 
-impl<'a, T> From<RwLockReadGuard<'a, T>> for SignalReadGuard<'a, T> {
-    fn from(value: RwLockReadGuard<'a, T>) -> Self {
-        SignalReadGuard(value)
+impl<'a, T> SignalReadGuard<'a, T, T> {
+    pub fn new(guard: RwLockReadGuard<'a, T>) -> Self {
+        SignalReadGuard {
+            guard,
+            map_fn: |t| t,
+        }
     }
 }
 
-impl<'a, T> Deref for SignalReadGuard<'a, T> {
-    type Target = T;
+impl<'a, T, U> SignalReadGuard<'a, T, U> {
+    pub fn new_with_map_fn(
+        guard: RwLockReadGuard<'a, T>,
+        map_fn: fn(&T) -> &U,
+    ) -> Self {
+        SignalReadGuard { guard, map_fn }
+    }
+}
+
+impl<'a, T> From<RwLockReadGuard<'a, T>> for SignalReadGuard<'a, T, T> {
+    fn from(guard: RwLockReadGuard<'a, T>) -> Self {
+        SignalReadGuard::new(guard)
+    }
+}
+
+impl<'a, T, U> Deref for SignalReadGuard<'a, T, U> {
+    type Target = U;
 
     fn deref(&self) -> &Self::Target {
-        self.0.deref()
+        (self.map_fn)(self.guard.deref())
     }
 }
 
