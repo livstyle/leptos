@@ -6,7 +6,7 @@ use std::{
 };
 
 pub(crate) mod channel;
-//pub mod effect;
+pub mod effect;
 pub mod executor;
 pub mod graph;
 pub mod owner;
