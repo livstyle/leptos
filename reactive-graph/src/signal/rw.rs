@@ -1,47 +1,25 @@
-use super::{SignalReadGuard, SignalUntrackedWriteGuard, SignalWriteGuard};
-use crate::{
-    graph::{
-        AnySource, AnySubscriber, ReactiveNode, Source, SubscriberSet,
-        ToAnySource,
-    },
-    prelude::{IsDisposed, Trigger},
-    traits::{DefinedAt, Readable, Writeable},
+use super::{
+    subscriber_traits::AsSubscriberSet, ArcRwSignal, ReadSignal, WriteSignal,
 };
-use core::fmt::{Debug, Formatter, Result};
+use crate::{
+    graph::{ReactiveNode, SubscriberSet},
+    owner::{Stored, StoredData},
+    traits::{DefinedAt, IsDisposed, Trigger, UpdateUntracked, WithUntracked},
+    unwrap_signal,
+};
+use core::fmt::Debug;
 use std::{
     panic::Location,
-    sync::{Arc, RwLock, Weak},
+    sync::{Arc, RwLock},
 };
 
-pub struct ArcRwSignal<T> {
+pub struct RwSignal<T: Send + Sync + 'static> {
     #[cfg(debug_assertions)]
     defined_at: &'static Location<'static>,
-    pub(crate) value: Arc<RwLock<T>>,
-    inner: Arc<RwLock<SubscriberSet>>,
+    inner: Stored<ArcRwSignal<T>>,
 }
 
-impl<T> Clone for ArcRwSignal<T> {
-    #[track_caller]
-    fn clone(&self) -> Self {
-        Self {
-            #[cfg(debug_assertions)]
-            defined_at: self.defined_at,
-            value: Arc::clone(&self.value),
-            inner: Arc::clone(&self.inner),
-        }
-    }
-}
-
-impl<T> Debug for ArcRwSignal<T> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        f.debug_struct("ArcRwSignal")
-            .field("type", &std::any::type_name::<T>())
-            .field("value", &Arc::as_ptr(&self.value))
-            .finish()
-    }
-}
-
-impl<T> ArcRwSignal<T> {
+impl<T: Send + Sync + 'static> RwSignal<T> {
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(level = "trace", skip_all,)
@@ -50,14 +28,83 @@ impl<T> ArcRwSignal<T> {
         Self {
             #[cfg(debug_assertions)]
             defined_at: Location::caller(),
-            value: Arc::new(RwLock::new(value)),
-            inner: Arc::new(RwLock::new(SubscriberSet::new())),
+            inner: Stored::new(ArcRwSignal::new(value)),
+        }
+    }
+
+    #[inline(always)]
+    pub fn read_only(&self) -> ReadSignal<T> {
+        ReadSignal {
+            #[cfg(debug_assertions)]
+            defined_at: Location::caller(),
+            inner: Stored::new(
+                self.get_value()
+                    .map(|inner| inner.read_only())
+                    .unwrap_or_else(unwrap_signal!(self)),
+            ),
+        }
+    }
+
+    #[inline(always)]
+    pub fn write_only(&self) -> WriteSignal<T> {
+        WriteSignal {
+            #[cfg(debug_assertions)]
+            defined_at: Location::caller(),
+            inner: Stored::new(
+                self.get_value()
+                    .map(|inner| inner.write_only())
+                    .unwrap_or_else(unwrap_signal!(self)),
+            ),
+        }
+    }
+
+    #[inline(always)]
+    pub fn split(&self) -> (ReadSignal<T>, WriteSignal<T>) {
+        (self.read_only(), self.write_only())
+    }
+
+    #[track_caller]
+    pub fn unite(read: ReadSignal<T>, write: WriteSignal<T>) -> Option<Self> {
+        match (read.inner.get(), write.inner.get()) {
+            (Some(read), Some(write)) => {
+                if Arc::ptr_eq(&read.inner, &write.inner) {
+                    Some(Self {
+                        #[cfg(debug_assertions)]
+                        defined_at: Location::caller(),
+                        inner: Stored::new(ArcRwSignal {
+                            #[cfg(debug_assertions)]
+                            defined_at: Location::caller(),
+                            value: Arc::clone(&read.value),
+                            inner: Arc::clone(&read.inner),
+                        }),
+                    })
+                } else {
+                    None
+                }
+            }
+            _ => None,
         }
     }
 }
 
-impl<T> DefinedAt for ArcRwSignal<T> {
-    #[inline(always)]
+impl<T: Send + Sync + 'static> Copy for RwSignal<T> {}
+
+impl<T: Send + Sync + 'static> Clone for RwSignal<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T: Send + Sync + 'static> Debug for RwSignal<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RwSignal")
+            .field("type", &std::any::type_name::<T>())
+            .field("store", &self.inner)
+            .finish()
+    }
+}
+
+impl<T: Send + Sync + 'static> DefinedAt for RwSignal<T> {
     fn defined_at(&self) -> Option<&'static Location<'static>> {
         #[cfg(debug_assertions)]
         {
@@ -70,113 +117,58 @@ impl<T> DefinedAt for ArcRwSignal<T> {
     }
 }
 
-impl<T> IsDisposed for ArcRwSignal<T> {
-    #[inline(always)]
+impl<T: Send + Sync + 'static> IsDisposed for RwSignal<T> {
     fn is_disposed(&self) -> bool {
-        false
+        self.inner.exists()
     }
 }
 
-impl<T> Readable for ArcRwSignal<T> {
+impl<T: Send + Sync + 'static> StoredData for RwSignal<T> {
+    type Data = ArcRwSignal<T>;
+
+    fn get_value(&self) -> Option<Self::Data> {
+        self.inner.get()
+    }
+
+    fn dispose(&self) {
+        self.inner.dispose();
+    }
+}
+
+impl<T: Send + Sync + 'static> AsSubscriberSet for RwSignal<T> {
+    type Output = Arc<RwLock<SubscriberSet>>;
+
+    fn as_subscriber_set(&self) -> Option<Self::Output> {
+        self.inner
+            .with_value(|inner| inner.as_subscriber_set())
+            .flatten()
+    }
+}
+
+impl<T: Send + Sync + 'static> WithUntracked for RwSignal<T> {
     type Value = T;
 
-    fn try_read(&self) -> Option<SignalReadGuard<'_, T>> {
-        self.value.read().ok().map(SignalReadGuard::from)
+    fn try_with_untracked<U>(
+        &self,
+        fun: impl FnOnce(&Self::Value) -> U,
+    ) -> Option<U> {
+        self.get_value().and_then(|n| n.try_with_untracked(fun))
     }
 }
 
-impl<T> Trigger for ArcRwSignal<T> {
+impl<T: Send + Sync + 'static> Trigger for RwSignal<T> {
     fn trigger(&self) {
         self.mark_dirty();
     }
 }
 
-impl<T> Writeable for ArcRwSignal<T> {
+impl<T: Send + Sync + 'static> UpdateUntracked for RwSignal<T> {
     type Value = T;
 
-    fn try_write(&self) -> Option<SignalWriteGuard<'_, Self, Self::Value>> {
-        self.value
-            .write()
-            .ok()
-            .map(|guard| SignalWriteGuard::new(self, guard))
-    }
-
-    fn try_write_untracked(
+    fn try_update_untracked<U>(
         &self,
-    ) -> Option<SignalUntrackedWriteGuard<'_, Self::Value>> {
-        self.value.write().ok().map(SignalUntrackedWriteGuard::from)
-    }
-}
-
-impl ReactiveNode for RwLock<SubscriberSet> {
-    fn mark_dirty(&self) {
-        self.mark_subscribers_check();
-    }
-
-    fn mark_check(&self) {}
-
-    fn mark_subscribers_check(&self) {
-        for sub in self.write().unwrap().take() {
-            sub.mark_check();
-        }
-    }
-
-    fn update_if_necessary(&self) -> bool {
-        // if they're being checked, signals always count as "dirty"
-        true
-    }
-}
-
-impl Source for RwLock<SubscriberSet> {
-    fn clear_subscribers(&self) {
-        self.write().unwrap().take();
-    }
-
-    fn add_subscriber(&self, subscriber: AnySubscriber) {
-        self.write().unwrap().subscribe(subscriber)
-    }
-
-    fn remove_subscriber(&self, subscriber: &AnySubscriber) {
-        self.write().unwrap().unsubscribe(subscriber)
-    }
-}
-
-impl<T> ReactiveNode for ArcRwSignal<T> {
-    fn mark_dirty(&self) {
-        self.mark_subscribers_check();
-    }
-
-    fn mark_check(&self) {}
-
-    fn mark_subscribers_check(&self) {
-        self.inner.mark_subscribers_check();
-    }
-
-    fn update_if_necessary(&self) -> bool {
-        // if they're being checked, signals always count as "dirty"
-        true
-    }
-}
-
-impl<T> Source for ArcRwSignal<T> {
-    fn clear_subscribers(&self) {
-        self.inner.clear_subscribers();
-    }
-
-    fn add_subscriber(&self, subscriber: AnySubscriber) {
-        self.inner.add_subscriber(subscriber);
-    }
-
-    fn remove_subscriber(&self, subscriber: &AnySubscriber) {
-        self.inner.remove_subscriber(subscriber);
-    }
-}
-
-impl<T> ToAnySource for ArcRwSignal<T> {
-    fn to_any_source(&self) -> AnySource {
-        AnySource(
-            Arc::as_ptr(&self.inner) as usize,
-            Arc::downgrade(&self.inner) as Weak<dyn Source + Send + Sync>,
-        )
+        fun: impl FnOnce(&mut Self::Value) -> U,
+    ) -> Option<U> {
+        self.get_value().and_then(|n| n.try_update_untracked(fun))
     }
 }

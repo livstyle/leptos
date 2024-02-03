@@ -13,29 +13,40 @@
 //! - [`IsDisposed`] checks whether a signal is currently accessible.
 //!
 //! ## Base Traits
-//! | Trait | Mode | Description
-//! |-------|-------------|-------------
-//! | [`Track`] | — | Tracks change to the value of this reactive signal, causing the current reactive observer to subscribe to it, and to re-run when it changes. |
-//! | [`Trigger`] | — | Notifies subscribers that this value has changed.
-//! | [`Readable`] | Guard | Gives immutable access to the value of this signal.
-//! | [`Writeable`] | Guard | Gives mutable access to the value of this signal. If untracked, this is a write guard. If tracked, it is a write guard that calls [`Trigger::trigger()`] when it is dropped.
+//! | Trait        | Mode  | Description                                                                           |
+//! |--------------|-------|---------------------------------------------------------------------------------------|
+//! | [`Track`]    | —     | Tracks changes to this value, adding it as a source of the current reactive observer. |
+//! | [`Trigger`]  | —     | Notifies subscribers that this value has changed.                                     |
+//! | [`Readable`] | Guard | Gives immutable access to the value of this signal.                                   |
+//! | [`Writeable`]| Guard | Gives mutable access to the value of this signal.
 //!
 //! ## Derived Traits
 //!
 //! ### Access
-//! | Trait | Mode | Composition | Description
-//! |-------|-------------|-------------|------------
-//! | [`WithUntracked`] | `fn(&T) -> U` | [`Readable`] | Applies closure to the current value of the signal and returns result.
-//! | [`With`] | `fn(&T) -> U` |  [`Readable`] + [`Track`] | Applies closure to the current value of the signal and returns result, with reactive tracking.
-//! | [`GetUntracked`] | `T` | [`Readable`] + [`Clone`] | Clones the current value of the signal.
-//! | [`Get`] | `T` | [`Readable`] + [`Clone`] + [`Track`] | Clones the current value of the signal, with reactive tracking.
+//! | Trait             | Mode          | Composition                   | Description
+//! |-------------------|---------------|-------------------------------|------------
+//! | [`WithUntracked`] | `fn(&T) -> U` | [`Readable`]                  | Applies closure to the current value of the signal and returns result.
+//! | [`With`]          | `fn(&T) -> U` | [`Readable`] + [`Track`]      | Applies closure to the current value of the signal and returns result, with reactive tracking.
+//! | [`GetUntracked`]  | `T`           | [`WithUntracked`] + [`Clone`] | Clones the current value of the signal.
+//! | [`Get`]           | `T`           | [`GetUntracked`] + [`Track`]  | Clones the current value of the signal, with reactive tracking.
 //!
 //! ### Update
-//! | Trait | Mode | Composition | Description
-//! |-------|-------------|-------------|------------
-//! | [`UpdateUntracked`] | `fn(&mut T)` | [`Writeable`] | Applies closure to the current value of the signal to update it, but doesn't notify subscribers.
-//! | [`Update`] | `fn(&mut T)` | [`Writeable`] + [`Trigger`] | Applies closure to the current value of the signal to update it, and notifies subscribers.
-//! | [`Set`] | `T` | [`Writeable`] + [`Trigger`] | Sets the value to a new value, and notifies subscribers.
+//! | Trait               | Mode          | Composition                       | Description
+//! |---------------------|---------------|-----------------------------------|------------
+//! | [`UpdateUntracked`] | `fn(&mut T)`  | [`Writeable`]                     | Applies closure to the current value to update it, but doesn't notify subscribers.
+//! | [`Update`]          | `fn(&mut T)`  | [`UpdateUntracked`] + [`Trigger`] | Applies closure to the current value to update it, and notifies subscribers.
+//! | [`Set`]             | `T`           | [`Update`]                        | Sets the value to a new value, and notifies subscribers.
+//!
+//! ## Using the Traits
+//!
+//! These traits are designed so that you can implement as few as possible, and the rest will be
+//! implemented automatically.
+//!
+//! For example, if you have a struct for which you can implement [`Readable`] and [`Track`], then
+//! [`WithUntracked`] and [`With`] will be implemented automatically (as will [`GetUntracked`] and
+//! [`Get`] for `Clone` types). But if you cannot implement [`Readable`] (because, for example,
+//! there isn't an `RwLock` you can wrap in a [`SignalReadGuard`]), but you can still implement
+//! [`WithUntracked`] and [`Track`], the same traits will still be implemented.
 
 use crate::{
     graph::{Observer, Source, Subscriber, ToAnySource},
@@ -88,10 +99,10 @@ pub trait Readable: Sized + DefinedAt {
     type Value;
 
     #[track_caller]
-    fn try_read(&self) -> Option<SignalReadGuard<'_, Self::Value>>;
+    fn try_read(&self) -> Option<SignalReadGuard<Self::Value>>;
 
     #[track_caller]
-    fn read(&self) -> SignalReadGuard<'_, Self::Value> {
+    fn read(&self) -> SignalReadGuard<Self::Value> {
         self.try_read().unwrap_or_else(unwrap_signal!(self))
     }
 }
@@ -255,16 +266,17 @@ pub trait Update {
 
 impl<T> Update for T
 where
-    T: Writeable,
+    T: UpdateUntracked + Trigger,
 {
-    type Value = <Self as Writeable>::Value;
+    type Value = <Self as UpdateUntracked>::Value;
 
     fn try_update<U>(
         &self,
         fun: impl FnOnce(&mut Self::Value) -> U,
     ) -> Option<U> {
-        let mut guard = self.try_write()?;
-        Some(fun(&mut *guard))
+        let val = self.try_update_untracked(fun)?;
+        self.trigger();
+        Some(val)
     }
 }
 

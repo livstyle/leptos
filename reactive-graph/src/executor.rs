@@ -120,7 +120,7 @@ impl Executor {
 
         static THREAD_POOL: OnceLock<ThreadPool> = OnceLock::new();
         thread_local! {
-            static LOCAL_SPAWNER: LocalSpawner = LocalPool::new().spawner();
+            static LOCAL_POOL: LocalPool = LocalPool::new();
         }
 
         fn get_thread_pool() -> &'static ThreadPool {
@@ -139,7 +139,8 @@ impl Executor {
             .map_err(|_| ExecutorError::AlreadySet)?;
         SPAWN_LOCAL
             .set(|fut| {
-                LOCAL_SPAWNER.with(|spawner| {
+                LOCAL_POOL.with(|pool| {
+                    let spawner = pool.spawner();
                     spawner.spawn_local(fut).expect("failed to spawn future");
                 });
             })
