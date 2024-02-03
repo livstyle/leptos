@@ -13,7 +13,6 @@ pub use arc_write::*;
 pub use guards::*;
 pub use read::*;
 pub use rw::*;
-use subscriber_traits::*;
 pub use write::*;
 
 #[inline(always)]
