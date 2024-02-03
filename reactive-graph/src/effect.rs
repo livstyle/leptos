@@ -1,4 +1,5 @@
+mod effect;
 mod inner;
-mod render;
-use crate::{channel::Sender, graph::SourceSet, owner::Owner};
-pub use render::*;
+mod render_effect;
+pub use effect::*;
+pub use render_effect::*;
