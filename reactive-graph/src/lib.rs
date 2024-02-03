@@ -1,3 +1,15 @@
+//! An implementation of a fine-grained reactive system.
+//!
+//! Fine-grained reactivity is an approach to modeling the flow of data through an interactive
+//! application by composing together three categories of reactive primitives:
+//! 1. **Signals**: atomic units of state, which can be directly mutated.
+//! 2. **Computations**: derived values, which cannot be mutated directly but update whenever the signals
+//!    they depend on change. These include both synchronous and asynchronous derived values.
+//! 3. **Effects**: side effects that synchronize the reactive system with the non-reactive world
+//!    outside it.
+//!
+//! The state of an entire application can be modeled as a reactive graph of this kind.
+
 use futures::Stream;
 use std::{
     future::Future,
@@ -6,10 +18,10 @@ use std::{
 };
 
 pub(crate) mod channel;
+pub mod computed;
 pub mod effect;
 pub mod executor;
 pub mod graph;
-pub mod memo;
 pub mod owner;
 pub mod signal;
 pub mod traits;
