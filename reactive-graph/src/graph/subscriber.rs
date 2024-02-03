@@ -13,7 +13,7 @@ impl Observer {
         OBSERVER.with(|o| o.borrow().clone())
     }
 
-    fn is(observer: &AnySubscriber) -> bool {
+    pub(crate) fn is(observer: &AnySubscriber) -> bool {
         OBSERVER.with(|o| o.borrow().as_ref() == Some(observer))
     }
 

@@ -9,6 +9,7 @@ pub(crate) mod channel;
 pub mod effect;
 pub mod executor;
 pub mod graph;
+pub mod memo;
 pub mod owner;
 pub mod signal;
 pub mod traits;
