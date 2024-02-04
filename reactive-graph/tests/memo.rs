@@ -166,74 +166,72 @@ fn diamond_problem() {
     assert_eq!(*combined_count.read().unwrap(), 1);
 }
 
-#[cfg(feature = "futures-executor")]
-#[test]
-fn dynamic_dependencies() {
+#[cfg(feature = "tokio")]
+#[tokio::test]
+async fn dynamic_dependencies() {
     _ = Executor::init_futures_executor();
 
-    Executor::spawn(async {
-        let first = RwSignal::new("Greg");
-        let last = RwSignal::new("Johnston");
-        let use_last = RwSignal::new(true);
-        let name = Memo::new(move |_| {
-            if use_last.get() {
-                format!("{} {}", first.get(), last.get())
-            } else {
-                first.get().to_string()
-            }
-        });
-
-        let combined_count = Arc::new(RwLock::new(0));
-
-        // we forget it so it continues running
-        // if it's dropped, it will stop listening
-        mem::forget(Effect::new_sync({
-            let combined_count = Arc::clone(&combined_count);
-            move |_| {
-                _ = name.get();
-                *combined_count.write().unwrap() += 1;
-            }
-        }));
-        tick().await;
-
-        assert_eq!(*combined_count.read().unwrap(), 1);
-
-        first.set("Bob");
-        tick().await;
-
-        assert_eq!(name.get(), "Bob Johnston");
-
-        assert_eq!(*combined_count.read().unwrap(), 2);
-
-        last.set("Thompson");
-        tick().await;
-
-        assert_eq!(*combined_count.read().unwrap(), 3);
-
-        use_last.set(false);
-        tick().await;
-
-        assert_eq!(name.get(), "Bob");
-        assert_eq!(*combined_count.read().unwrap(), 4);
-
-        assert_eq!(*combined_count.read().unwrap(), 4);
-        last.set("Jones");
-        tick().await;
-
-        assert_eq!(*combined_count.read().unwrap(), 4);
-        last.set("Smith");
-        tick().await;
-
-        assert_eq!(*combined_count.read().unwrap(), 4);
-        last.set("Stevens");
-        tick().await;
-
-        assert_eq!(*combined_count.read().unwrap(), 4);
-
-        use_last.set(true);
-        tick().await;
-        assert_eq!(name.get(), "Bob Stevens");
-
-        assert_eq!(*combined_count.read().unwrap(), 5);
+    let first = RwSignal::new("Greg");
+    let last = RwSignal::new("Johnston");
+    let use_last = RwSignal::new(true);
+    let name = Memo::new(move |_| {
+        if use_last.get() {
+            format!("{} {}", first.get(), last.get())
+        } else {
+            first.get().to_string()
+        }
     });
+
+    let combined_count = Arc::new(RwLock::new(0));
+
+    // we forget it so it continues running
+    // if it's dropped, it will stop listening
+    mem::forget(Effect::new_sync({
+        let combined_count = Arc::clone(&combined_count);
+        move |_| {
+            _ = name.get();
+            *combined_count.write().unwrap() += 1;
+        }
+    }));
+    tick().await;
+
+    assert_eq!(*combined_count.read().unwrap(), 1);
+
+    first.set("Bob");
+    tick().await;
+
+    assert_eq!(name.get(), "Bob Johnston");
+
+    assert_eq!(*combined_count.read().unwrap(), 2);
+
+    last.set("Thompson");
+    tick().await;
+
+    assert_eq!(*combined_count.read().unwrap(), 3);
+
+    use_last.set(false);
+    tick().await;
+
+    assert_eq!(name.get(), "Bob");
+    assert_eq!(*combined_count.read().unwrap(), 4);
+
+    assert_eq!(*combined_count.read().unwrap(), 4);
+    last.set("Jones");
+    tick().await;
+
+    assert_eq!(*combined_count.read().unwrap(), 4);
+    last.set("Smith");
+    tick().await;
+
+    assert_eq!(*combined_count.read().unwrap(), 4);
+    last.set("Stevens");
+    tick().await;
+
+    assert_eq!(*combined_count.read().unwrap(), 4);
+
+    use_last.set(true);
+    tick().await;
+    assert_eq!(name.get(), "Bob Stevens");
+
+    assert_eq!(*combined_count.read().unwrap(), 5);
 }

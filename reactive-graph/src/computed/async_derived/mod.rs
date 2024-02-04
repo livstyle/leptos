@@ -17,7 +17,7 @@ use std::{
     task::{Context, Poll},
 };
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub enum AsyncState<T> {
     #[default]
     Loading,

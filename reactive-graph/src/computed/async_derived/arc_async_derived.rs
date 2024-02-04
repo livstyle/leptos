@@ -10,7 +10,8 @@ use crate::{
         SubscriberSet, ToAnySource, ToAnySubscriber,
     },
     owner::Owner,
-    traits::{DefinedAt, WithUntracked},
+    signal::SignalReadGuard,
+    traits::{DefinedAt, Readable},
     OrPoisoned,
 };
 use core::fmt::Debug;
@@ -220,14 +221,12 @@ impl<T: 'static> ArcAsyncDerived<T> {
     }
 }
 
-impl<T> WithUntracked for ArcAsyncDerived<T> {
+impl<T> Readable for ArcAsyncDerived<T> {
+    type Root = AsyncState<T>;
     type Value = AsyncState<T>;
 
-    fn try_with_untracked<U>(
-        &self,
-        fun: impl FnOnce(&Self::Value) -> U,
-    ) -> Option<U> {
-        Some(fun(&self.value.read().or_poisoned()))
+    fn try_read(&self) -> Option<SignalReadGuard<Self::Root, Self::Value>> {
+        self.value.read().ok().map(SignalReadGuard::new)
     }
 }
 
